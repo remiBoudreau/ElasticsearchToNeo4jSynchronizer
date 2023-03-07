@@ -1,0 +1,83 @@
+{
+    "id":"http://checkmate3d/data-ingress.json",
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "source": {
+            "type": "string"
+        },
+        "ttl": {
+            "type": "integer",
+            "minimum": 0
+        },
+        "searchId": {
+            "type": "string"
+        },
+        "correlationId": {
+            "type": "string"
+        },
+        "taxonomyName": {
+            "type": "string"
+        },
+        "searchType": {
+            "type": "string"
+        },
+        "searchQuery": {
+            "type": "object"
+        },
+        "queryDepth" : {
+            "type": "integer",
+            "minimum": 1
+        },
+        "data": {
+            "data-key":{
+                "name":{"type": "string"},
+                "Description": {"type:" : "string"}
+            },
+            "documentId":{"type" : "string"}
+        },
+        "searchQueries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "value": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "taxonomy-node-id": {"type": "string"},
+                    "properties":{
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "value": {"type": "string"},
+                            "subject": {"type": "string"},
+                            "data-source": {"type": "string"}
+                        }
+                    }
+                }
+            }
+        },  
+        "filters": {
+            "type": "array",
+            "items": {"type": "object"}
+        },
+        "nodes": {
+            "type": "array",
+            "items": {"type": "object"}
+        },
+        "edges": {
+            "type": "array",
+            "items": {"type": "object"}
+        }
+    },
+    "required": [
+        "id",
+        "source",
+        "correlationId",
+        "queryDepth",
+        "data"
+    ]
+}
