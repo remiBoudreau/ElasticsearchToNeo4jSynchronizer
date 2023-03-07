@@ -1,0 +1,13 @@
+{
+    "neo4j_conn_id":{
+        "host":"neo4j",
+        "login":"neo4j",
+        "password":"test"
+
+    },
+    "es_conn_id":{
+        "host": "elasticsearch",
+        "port": 9200,
+        "schema": "http"
+    }
+}

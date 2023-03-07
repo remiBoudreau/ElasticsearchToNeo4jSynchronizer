@@ -1,0 +1,70 @@
+image: atlassian/default-image:3
+
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Build and Test
+            script:
+              - IMAGE_NAME=pipelinbe-controller
+              - ls
+              - git clone git@bitbucket.org:psicheckmate/sdk.git
+              - cd $BUILD_DIR
+              - docker build --file ./Dockerfile --tag ${IMAGE_NAME} ../
+            services:
+              - docker
+            caches:
+              - docker
+        - step:
+            name: Lint the Dockerfile
+            image: hadolint/hadolint:latest-debian
+            script:
+              - hadolint Dockerfile
+  branches:
+    master:
+      - step:
+          name: Build and Test
+          script:
+            - IMAGE_NAME=pipeline-controller
+            - IMAGE_NAME2=data-aggregator
+            - mkdir search-service
+            - shopt -s extglob dotglob
+            - mv !(search-service) search-service
+            - shopt -u dotglob
+            - git clone git@bitbucket.org:psicheckmate/sdk.git
+            - cd search-service
+            - docker build -t ${IMAGE_NAME} -f ./${IMAGE_NAME}/Dockerfile  ../
+            - docker build -t ${IMAGE_NAME2} -f ./${IMAGE_NAME2}/Dockerfile  ../
+            - cd ../
+            - docker save ${IMAGE_NAME} --output "${IMAGE_NAME}.tar"
+            - docker save ${IMAGE_NAME2} --output "${IMAGE_NAME2}.tar"
+          services:
+            - docker
+          caches:
+            - docker
+          artifacts:
+            - "*.tar"
+      - step:
+          name: Deploy to Production
+          deployment: Production
+          script:
+            - echo ${AZURE_PASSWORD} | docker login --username "$AZURE_USERNAME" --password-stdin checkmate3d.azurecr.io
+            - IMAGE_NAME=pipeline-controller
+            - docker load --input "${IMAGE_NAME}.tar"
+            - VERSION="0.1.${BITBUCKET_BUILD_NUMBER}"
+            - IMAGE=${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}
+            - docker tag "${IMAGE_NAME}" "${IMAGE}:${VERSION}"
+            - docker push "${IMAGE}:${VERSION}"
+            - docker tag "${IMAGE_NAME}" "${IMAGE}:latest"
+            - docker push "${IMAGE}:latest"
+            - IMAGE_NAME=data-aggregator
+            - docker load --input "${IMAGE_NAME}.tar"
+            - VERSION="0.1.${BITBUCKET_BUILD_NUMBER}"
+            - IMAGE=${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}
+            - docker tag "${IMAGE_NAME}" "${IMAGE}:${VERSION}"
+            - docker push "${IMAGE}:${VERSION}"
+            - docker tag "${IMAGE_NAME}" "${IMAGE}:latest"
+            - docker push "${IMAGE}:latest"
+
+          services:
+            - docker

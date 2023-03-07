@@ -1,0 +1,13 @@
+schemaorg==0.1.1
+networkx==2.8.6
+icecream==2.1.3
+joblib==1.1.0
+neo4j
+schemaorg==0.1.1
+networkx==2.8.6
+icecream==2.1.3
+joblib==1.1.0
+requests
+numpy
+requests
+numpy
