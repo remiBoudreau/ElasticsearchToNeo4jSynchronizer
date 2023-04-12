@@ -1,3 +1,2 @@
-requests==2.28.2
-joblib==1.2.0
-lxml==4.9.2
+Elasticsearch==8.6.2
+neo4j
