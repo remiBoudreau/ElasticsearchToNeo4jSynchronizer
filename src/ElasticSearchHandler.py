@@ -1,5 +1,5 @@
 from logging import Logger
-from typing import Union, str, List
+from typing import Union, str, List, Dict
 from elasticsearch import Elasticsearch
 
 class ElasticSearchHandler:
@@ -10,7 +10,8 @@ class ElasticSearchHandler:
                 ca_certs: str, 
                 ca_fingerprint:str, 
                 index: str, 
-                logger: Logger):
+                logger: Logger,
+                KeyErrorHandler: function):
             """
             Constructor method creates an Elasticsearch client instance.
 
@@ -73,7 +74,7 @@ class ElasticSearchHandler:
             
             return search_query
         except KeyError as e:
-            self.logger.error('Failed to parse queryEventHandler: {e}')
+            self.logger.error(f'Failed to parse queryEventHandler: {e}')
 
     def datFetch(self, elasticsearch_query, entity_keys):
         """
@@ -84,7 +85,7 @@ class ElasticSearchHandler:
         elasticsearch_query : dict
             A dictionary containing the Elasticsearch query parameters.
         entity_keys : list of str
-            A list of keys to extract from the indiviudal documents' data obtained from the Elasticsearch search result.
+            A list of keys to extract from the indiviudal documents' data obtained from the Elasticsearch search result. THey are the fields that contain entities.
 
         Returns
         -------
@@ -106,11 +107,18 @@ class ElasticSearchHandler:
                     hit['_source'][key] = [dict(item) for item in hit['_source'][key]]
 
         return dataFetchResponse
-        
+    
+    def elasticsearchMapper(dataFetchResponse):
+        keyDependencyMap = ['hits', 'hits', '_source']   
+        keyDependencyMapTypes = [list, list, list]
+        keyDependencyGenerator = ((key[0], self.KeyErrorHandler(key[0], key[1])) for key in keyDependencyMap)
+        return 
+
     def elasticSearchOperations(self, queryCloudEvent, subjectFields, selectedProperty, entity_keys):
         elasticsearchQuery = self.queryBuilder(queryCloudEvent, subjectFields, selectedProperty)                #1
         dataFetchResponse = self.dataFetch(elasticsearch_query=elasticsearchQuery, entity_keys=entity_keys) #2
         return dataFetchResponse
+    
     def createElasticSearchPipeline(self, subjectFields, selectedProperty, searchQueries):
         return map(lambda searchQuery: self.elasticSearchOperations(searchQuery, subjectFields, selectedProperty), searchQueries)
     
