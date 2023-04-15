@@ -11,140 +11,115 @@ from util.neo4jConnection import Neo4jConnection, GraphDatabase
 from util.openmetadataApi import OpenMetadataConnection, retrieveCatalogEntity  
 from package.nodeType import NodeType
 
-from typing import List, Dict
+from typing import List, Dict, Generator
+
 class GrayHatWarfare(DataFetcher):
     def __init__(self) -> None:
         super().__init__()
         self.neo4j = Neo4jConnection()
         self.openMeta = OpenMetadataConnection()
-    
-        # data used by both Elasticsearch and Neo4j
-        self.from_node_keys = ['vendor'] 
-        self.to_node_keys = ['relatedPersons', 'relatedOrganizations']
-        self.relationshp_property_keys = ['amount']
+
+        self.parameters = {"selectedProperties": ['name'],
+                            "thresholds": {
+                                'vendor': 0.9,
+                                'relatedPersons': 0.9,
+                                'relatedOrganizations': 0.9,
+                                'amount': 0.9
+                                },
+                            "entityTypes": {
+                                'vendor': 'person', 
+                                'relatedPersons': 'person', 
+                                'relatedOrganizations': 'organization', 
+                                }
+
+                            }
+        self.neo4jParameters = {
+                    "from": ["vendor"],
+                    "fromProps": [],
+                    "to": ['relatedPersons', 'relatedOrganizations'], 
+                    "toProps": [], 
+                    "relationship": "HAS_PROVIDED_BUSINESS_TO", 
+                    "relationshipProps": ['amount']
+                    }
         self.logger = loggerFunction()
-
-        valid_node_types=['Person', 'Organization', 'Thing']
-        # self.neo4jClient = Neo4jHandler(
-        #     valid_node_types=valid_node_types, 
-        #     host='bolt://neo4j:7687', 
-        #     user='neo4j', 
-        #     password='test', 
-        #     logger=self.logger
-        # )
-
+            
     # Use retrieveCatalogEntity to check if the node exists or not in Neo4j
     # E.g. source_entity = {'name': "Person or Company name", "other fields from cloudEvent like email or location (if any)"}
     # E.g. For person use nodeType = NodeType.PERSON.value and use company use nodeType = NodeType.ORGANIZATION.value
-    # E.g.  source_entity = retrieveCatalogEntity(openmeta_conn, source_entity, nodeType.lower())    
-    # 
-    def KeyErrorHandler(self, key, obj_type=None):
-        # default type to list
-        if obj_type is None:
-            obj_type = list
-        self.logger.error(f"KeyError: '{key}' is not present in the given object")
-        return obj_type()
-    
-    def dataFormatter(self,
-                    dataFetchResponse,
-                    vendor_threshold,
-                    related_persons_threshold,
-                    related_organizations_threshold,
-                    amount_threshold,
-                    entity_keys,
-                    threshold_keys,
-                    keyDependencyGenerator
-                    ):
-        hits = dataFetchResponse.get(*next(keyDependencyGenerator))
-        data = [
-            {
-                entity_key: [dict(item) for item in data.get(entity_key, self.KeyErrorHandler(entity_key, type(data.get(entity_key,))))] 
-                for entity_key in entity_keys
-                for data in [hit.get(*next(keyDependencyGenerator))]
-            }
-            for hit in hits.get(*next(keyDependencyGenerator))
-        ]
-        data = [{key: value for key, value in hit.items() if key in entity_keys} for hit in data]
+    # E.g.  source_entity = retrieveCatalogEntity(openmeta_conn, source_entity, nodeType.lower())
 
-        if not hits:
-            self.logger.error("No hits returned from Elasticsearch")
-        elif not data:
-            self.logger.error("KeyError _source found in Elasticsearch response")
-
-        # Delete any elements whose score falls below threshold defined by user
-        thresholds = [vendor_threshold, related_persons_threshold, related_organizations_threshold, amount_threshold]
-        for threshold_key, threshold in zip(threshold_keys, thresholds):
-            data[threshold_key] = [d for d in data[threshold_key] if d.get('score', 0) >= threshold]
+    def elasticsearchQueryBuilder(self, queryCloudEvent):
+        search_query = None
+        try:
+        # list of queries
+            queries = [{
+                "multi_match": {
+                    "query": property['value'].lower(),
+                    "fields": self.parameters['entityTypes'][event_search_query['subject']],
+                    "operator": "and",
+                    "fuzziness": "AUTO"
+                }
+            } for event_search_query in queryCloudEvent['searchQueries'] 
+            for property in event_search_query['properties'] 
+            if property['key'] in self.parameters["selectedProperties"]]
+            # Combine the must queries with a bool query
+            search_query = {"bool": {"must": queries}}
+        except KeyError as e:
+            self.logger.error(f'Failed to parse queryEventHandler: {e}')
+        finally:
+            return search_query
             
-        return data
+    def neo4jQueryBuilder(self, dataFetchResponse):
+        for doc in self.docGenerator(dataFetchResponse):
+            for nodeFrom in [entityKey.lower() for entityKey in self.neo4jParameters['from']]:
+                for nodeTo in [entityKey.lower() for entityKey in self.neo4jParameters['to']]:
+                        self.neo4jParameters['name'] = doc[nodeFrom]
+                        yield {
+                            'fromType': self.parameters['entityTypes'][nodeFrom],
+                            'fromProps': {'name': doc[nodeFrom], **{key: doc[key] for key in self.neo4jParameters['fromProps'] if key != "name"}},
+                            'toType': self.parameters['entityTypes'][nodeTo],
+                            'toProps':{'name': doc[nodeTo], **{key: doc[key] for key in self.neo4jParameters['fromProps'] if key != "name"}},
+                            'relationshipType': self.neo4jParameters['relationship'],
+                            'relationshipProps': {key: doc[key] for key in self.neo4jParameters['relationshipProps']}
+                        }
 
-    # def dataFormatter(
-    #         self,
-    #         dataFetchResponse,
-    #         vendor_threshold,
-    #         related_persons_threshold,
-    #         related_organizations_threshold,
-    #         amount_threshold,
-    #         entity_keys,
-    #         threshold_keys,
-    #         keyDependencyGenrator):
-    #     hits = dataFetchResponse.get(*next(keyDependencyGenerator))
-    #     data = [
-    #         {
-    #             entity_key: [dict(item) for item in data.get(entity_key, self.KeyErrorHandler(entity_key, type(data.get(entity_key,))))] 
-    #             for entity_key in entity_keys
-    #             for data in [hit.get(*next(keyDependencyGenerator))]
-    #         }
-    #         for hit in hits.get(*next(keyDependencyGenerator))
-    #     ]
-    #     data = [{key: value for key, value in hit.items() if key in entity_keys} for hit in data]
+    def extractDoc(self, dataFetchResponse: dict) -> Generator[dict, None, None]:
+        """
+        Extracts data from an Elasticsearch search response.
 
-    #     if not hits:
-    #         self.logger.error("No hits returned from Elasticsearch")
-    #     elif not data:
-    #         self.logger.error("KeyError _source found in Elasticsearch response")
+        Parameters:
+            dataFetchResponse (dict): The response object returned by Elasticsearch.
 
-    # # Delete any elements whose score falls below threshold defined by user
-    # thresholds = [vendor_threshold, related_persons_threshold, related_organizations_threshold, amount_threshold]
-    # for threshold_key, threshold in zip(threshold_keys, thresholds):
-    #     data[threshold_key] = [d for d in data[threshold_key] if d.get('score', 0) >= threshold]
-        
-    # return data
-
-
-    def dataFormatter(self,
-                      dataFetchResponse,
-                      vendor_threshold,
-                      related_persons_threshold,
-                      related_organizations_threshold,
-                      amount_threshold,
-                      entity_keys,
-                      threshold_keys
-                      ):
-        keyDependencyGenerator = ((key[0], self.KeyErrorHandler(key[0], key[1])) for key in keyDependencyMap)
-        hits = dataFetchResponse.get(*next(keyDependencyGenerator))
-        for hit in hits.get(*next(keyDependencyGenerator)):
-            data = hit.get(*next(keyDependencyGenerator))
-            # Cast string representation of dictionary to dictionary
-            for entity_key in entity_keys:
-                for idx in range(0, len(data.get(entity_key, self.KeyErrorHandler(entity_key, type(data.get(entity_key,)))))):
-                    data[entity_key][idx] = dict(data[entity_key][idx])
-            data = {key: [dict(item) for item in value] for key, value in data.items() if key in entity_keys}
-
-        if not hits:
-            self.logger.error("No hits returned from Elasticsearch")
-        elif not data:
-            self.logger.error("KeyError _source found in Elasticsearch response")
-        # Delete any elements whose score falls below threshold defined by user
-        thresholds = [vendor_threshold, related_persons_threshold, related_organizations_threshold, amount_threshold]
-        for threshold_key, threshold in zip(threshold_keys, thresholds):
-            data[threshold_key] = [d for d in data[threshold_key] if d.get('score', 0) >= threshold]
-        
-        return data                
-    def dataUpdate():
-        return NotImplementedError
+        Yields:
+            dict: A dictionary containing the extracted data.
+        """
+        try:
+            hits = dataFetchResponse.get('hits')
+            for hit in hits.get('hits'):
+                data = (
+                    {
+                        entityKey: dict(doc[entityKey])
+                        for entityKey in self.parameters['entityTypes'].keys()
+                        for doc in hit.get('_source')
+                    }
+                )
+                yield data
+        except Exception as e:
+            self.logger.error(e)
     
-    def startProcess(self, elastic_cred, queryCloudEvent):
+    def parseDoc(self, doc):
+        # Delete any elements whose score falls below threshold defined by user
+        for key, threshold in self.parameters["thresholds"]:
+            doc[key] = [d for d in doc[key] if d.get('score', 0) >= threshold]
+        yield doc
+
+
+    def docGenerator(self, dataFetchResponse):
+        for doc in self.extractDoc(dataFetchResponse):
+            doc = self.parseDoc(doc)
+            yield doc
+
+    def startProcess(self, queryCloudEvent):
         """
         This method is a runner function 
 
@@ -166,41 +141,29 @@ class GrayHatWarfare(DataFetcher):
         4.  dataPush function will create/take the neo4j nodes and relationships and will dump to neo4j                
         """
 
-        subjectFields = {
-            'person': ['vendor', 'relatedPersons'],
-            'organization': ['relatedOrganizations']
-        }
-        selectedProperty = 'name'
-
         dataFetchResponse = \
             ElasticSearchHandler(
-                hosts=os.getenv('hosts'), 
-                username=os.getenv('username'), 
-                password=os.getenv('password'), 
-                ca_certs=os.getenv('ca_certs'), 
-                ca_fingerprint=os.getenv('ca_fingerprint'), 
-                index=os.getenv('index'),
-                logger=self.logger
-            ).createElasticSearchPipeline(
-                queryCloudEvent=queryCloudEvent, 
-                subjectFields=subjectFields,
-                selectedProperty=selectedProperty
+                hosts=os.getenv('ES_HOSTS'), 
+                username=os.getenv('ES_USERNAME'), 
+                password=os.getenv('ES_PASSWORD'), 
+                ca_certs=os.getenv('ES_CA_CERTS'), 
+                ca_fingerprint=os.getenv('ES_CA_FINGERPRINT'), 
+                index=os.getenv('ES_INDEX'),
+                logger=self.logger,
+            ).dataFetch(
+                query=self.elasticsearchQueryBuilder(queryCloudEvent)
             )
-            
-        dataFormatResponse = \
-            self.dataFormatter(
-                dataFetchResponse=dataFetchResponse,
-                vendor_threshold=self.vendor_threshold,
-                related_persons_threshold=self.related_persons_threshold,
-                related_organizations_threshold=self.related_organizations_threshold,
-                amount_threshold=self.amount_threshold,
-                entity_keys = self.from_node_keys + self.to_node_keys,
-                threshold_keys= self.from_node_keys + self.to_node_keys + self.relationshp_property_keys
-            )
-    
         dataPushResponse = \
             Neo4jHandler(
-                    valid_node_types=subjectFields.keys(),
-                ).createNeo4jPipeline(
-                    dataFormatResponse=dataFormatResponse
-                )
+                host=os.getenv('NEO4J_HOST'),
+                user=os.getenv('NEO4J_USER'),
+                password=os.getenv('NEO4J_PASSWORD'),
+                neo4jParameters={'nodeTypes':list(set(value for value in self.parameters['entityTypes'].values())),
+                                 'chunkSize':10000}
+            ).dataPush(
+                queryParams=self.neo4jQueryBuilder(dataFetchResponse)
+            )
+
+        return dataPushResponse
+    
+
