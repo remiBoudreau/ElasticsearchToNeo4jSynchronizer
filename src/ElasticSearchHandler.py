@@ -7,8 +7,8 @@ class ElasticSearchHandler:
                 hosts: Union[str, List[str]], 
                 username: str, 
                 password: str, 
-                ca_certs: str, 
-                ca_fingerprint:str, 
+                caCerts: str, 
+                caFingerprint:str, 
                 index: str, 
                 logger: Logger):
             """
@@ -26,6 +26,10 @@ class ElasticSearchHandler:
                 The path to the CA certificates file. Defaults to None.
             ca_fingerprint: str
                 The SHA-256 fingerprint of the CA certificate. Defaults to None.
+            index: str
+                The name of the Elasticsearch index to search.
+            logger: Logger
+                The logging object to use for error reporting.
             """
             try:
                 self.index = index
@@ -35,35 +39,33 @@ class ElasticSearchHandler:
                 self.client = Elasticsearch(
                     hosts=hosts or ['localhost:9200'],
                     http_auth=(username, password),
-                    ca_certs=ca_certs,
-                    ssl_assert_fingerprint=ca_fingerprint,
-                    verify_certs=bool(ca_certs or ca_fingerprint)
+                    ca_certs=caCerts,
+                    ssl_assert_fingerprint=caFingerprint,
+                    verify_certs=bool(caCerts or caFingerprint)
                 )
             except Exception as e:
                 self.logger.error(f"Failed to connect to Elasticsearch: {e}")
                 
-    def dataFetch(self, query):
+    def dataFetch(self, query: dict) -> Union[dict, None]:
         """
-        This function takes the elasticsearch_query generated in queryBuilder and retrieves the data from the Elasticsearch index.
+        This function takes the Elasticsearch query generated in queryBuilder and retrieves the data from the Elasticsearch index.
 
         Parameters
         ----------
-        elasticsearch_query : dict
-            A dictionary containing the Elasticsearch query parameters.=
+        query : dict
+            A dictionary containing the Elasticsearch query parameters.
 
         Returns
         -------
         dataFetchResponse : dict or None
             A dictionary containing the search results. If no results are found, returns None.
         """
-        dataFetchResponse = None
+        dataFetchResponse = {}
         try:
             dataFetchResponse = self.client.search(index=self.index, query=query)
         except Exception as e:
-            self.logger.error(f"Failed to retrieve data from Elasticsearch: {e}")
-        else: 
-            if "error" in dataFetchResponse():
-                self.logger.error(f"Error in Elasticsearch query: {dataFetchResponse['error']}")
+            dataFetchResponse["error"] = (f"Failed to retrieve data from Elasticsearch: {e}")
+        finally: 
+            if "error" in dataFetchResponse:
+                self.logger.error(f"Failed to retrieve data from Elasticsearch: {dataFetchResponse['error']}")
         return dataFetchResponse
-        
-
