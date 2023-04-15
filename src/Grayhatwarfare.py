@@ -16,7 +16,7 @@ from typing import List, Dict, Generator, Any
 class GrayHatWarfare(DataFetcher):
     def __init__(self) -> None:
         """
-        Constructor method for the class.
+        Constructor method for the class. Change the values of parameters and neo4jParameters as necessary per ingress container
 
         Parameters
         ----------
@@ -29,21 +29,26 @@ class GrayHatWarfare(DataFetcher):
         super().__init__()
         self.neo4j = Neo4jConnection()
         self.openMeta = OpenMetadataConnection()
+        self.parameters: Dict[str, any] = {
+            "properties": ['answer'],
+            "types": {
+                'vendor': 'person', 
+                'relatedPersons': 'person', 
+                'relatedOrganizations': 'organization', 
+            },
+            "parse": {
+                "thresholds": {
+                    'args': {
+                        'vendor': 0.9,
+                        'relatedPersons': 0.9,
+                        'relatedOrganizations': 0.9,
+                        'amount': 0.9           
+                    },
+                    'condition': lambda threshold, entity: entity.get('score', 0) >= threshold
+                },
+            },
+        }
 
-        self.parameters: Dict[str, any] = {"properties": ['name'],
-                           "thresholds": {
-                                'vendor': 0.9,
-                                'relatedPersons': 0.9,
-                                'relatedOrganizations': 0.9,
-                                'amount': 0.9
-                                },
-                            "types": {
-                                'vendor': 'person', 
-                                'relatedPersons': 'person', 
-                                'relatedOrganizations': 'organization', 
-                                }
-
-                            }
         self.neo4jParameters: Dict[str, any] = {
                     "from": ["vendor"],
                     "fromProps": [],
@@ -53,8 +58,27 @@ class GrayHatWarfare(DataFetcher):
                     "relationshipProps": ['amount']
                     }
         self.logger = loggerFunction()
-    
-    
+
+    def parseDoc(self, doc):
+        """
+        This function deletes elements from a document whose score falls below a threshold defined by the user.
+
+        Parameters
+        ----------
+        doc : dict
+            A dictionary containing a document to be parsed.
+
+        Yields
+        ------
+        dict
+            A dictionary containing the parsed document.
+        """
+        for parseKey in self.parameters['parse'].keys():
+            parseCondition = self.parameters['parse']['condition']
+            for argKey, argValue in self.parameters["parse"][parseKey]['args'].items():
+                doc[argKey] = [d for d in doc[argKey] if parseCondition(argValue, d)]
+        yield doc 
+
     def elasticsearchQueryBuilder(self, queryCloudEvent: Dict[str, any]) -> Dict[str, any]:
         """
         This method takes a cloud event with a search query and builds an Elasticsearch query using the search parameters.
@@ -144,24 +168,6 @@ class GrayHatWarfare(DataFetcher):
                 }
             )
             yield data
-            
-    def parseDoc(self, doc):
-        """
-        This function deletes elements from a document whose score falls below a threshold defined by the user.
-
-        Parameters
-        ----------
-        doc : dict
-            A dictionary containing a document to be parsed.
-
-        Yields
-        ------
-        dict
-            A dictionary containing the parsed document.
-        """
-        for key, threshold in self.parameters["thresholds"].items():
-            doc[key] = [d for d in doc[key] if d.get('score', 0) >= threshold]
-        yield doc
 
     def docGenerator(self, dataFetchResponse):
         """
