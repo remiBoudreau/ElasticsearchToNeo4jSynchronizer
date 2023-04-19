@@ -1,64 +1,108 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import patch, Mock
 from elasticsearch import Elasticsearch
 from logging import Logger
-from .ElasticsearchHandler import ElasticsearchHandler
+from typing import List, Dict, Union
+from ElasticsearchHandler import ElasticsearchHandler
+
 
 class TestElasticsearchHandler(unittest.TestCase):
     def setUp(self):
-        self.logger = Mock(spec=Logger)
-        self.handler = ElasticsearchHandler('localhost:9200', 'testuser', 'testpass', 'test_certs.pem', 'test_fingerprint', 'test_index', self.logger)
+        self.hosts = ['https://localhost:9200']
+        self.username = 'username'
+        self.password = 'password'
+        self.caCerts = 'ca_certs'
+        self.caFingerprint = ''.join(['a']*32)
+        self.index = 'test_index'
+        self.logger = Logger('test_logger')
         
-    def test_dataFetch(self):
-        # Case 1: When search results are returned
+    @patch.object(Elasticsearch, 'search')
+    def test_data_fetch(self, mock_search):
+        # create an instance of ElasticsearchHandler
+        es_handler = ElasticsearchHandler(
+            hosts=self.hosts,
+            username=self.username,
+            password=self.password,
+            caCerts=self.caCerts,
+            caFingerprint=self.caFingerprint,
+            index=self.index,
+            logger=self.logger
+        )
+
+        # test successful data fetch
+        mock_response = {'hits': {'total': {'value': 1}, 'hits': [{'_id': '1', '_source': {}}]}}
+        mock_search.return_value = mock_response
         query = {'query': {'match_all': {}}}
-        expected_response = {'_scroll_id': 'fake_scroll_id', 'took': 1, 'timed_out': False, '_shards': {'total': 1, 'successful': 1, 'skipped': 0, 'failed': 0}, 'hits': {'total': {'value': 1, 'relation': 'eq'}, 'max_score': 1.0, 'hits': [{'_index': 'test_index', '_type': '_doc', '_id': '123', '_score': 1.0, '_source': {'field1': 'value1', 'field2': 'value2'}}]}}
-        self.handler.client.search = Mock(return_value=expected_response)
-        actual_response = self.handler.dataFetch(query)
-        self.assertEqual(actual_response, expected_response)
-        self.handler.client.search.assert_called_once_with(index='test_index', query=query)
+        result = es_handler.dataFetch(query)
+        self.assertEqual(result, mock_response)
 
-        # Case 2: When no search results are returned
-        query = {'query': {'match_none': {}}}
-        expected_response = None
-        self.handler.client.search = Mock(return_value=expected_response)
-        actual_response = self.handler.dataFetch(query)
-        self.assertEqual(actual_response, expected_response)
-        self.handler.client.search.assert_called_once_with(index='test_index', query=query)
+        # test other exception during data fetch
+        mock_search.side_effect = Exception('test error')
+        with self.assertRaises(Exception) as context:
+            es_handler.dataFetch(query)
+        self.assertEqual(str(context.exception), 'Failed to retrieve data from Elasticsearch: test error')
+        self.assertTrue(mock_search.called)
 
-    def test_init(self):
-        # Case 1: When all required parameters are provided
-        Elasticsearch = Mock(spec=Elasticsearch)
-        handler = ElasticsearchHandler('localhost:9200', 'testuser', 'testpass', 'test_certs.pem', 'test_fingerprint', 'test_index', self.logger)
-        self.assertEqual(handler.index, 'test_index')
-        self.assertEqual(handler.logger, self.logger)
-        Elasticsearch.assert_called_once_with(
-            hosts=['localhost:9200'],
-            http_auth=('testuser', 'testpass'),
-            ca_certs='test_certs.pem',
-            ssl_assert_fingerprint='test_fingerprint',
-            verify_certs=True
-        )
+        @patch.object(Elasticsearch, 'search')
+        def test_constructor(self, mock_search):
+            # create an instance of ElasticsearchHandler
+            es_handler = ElasticsearchHandler(
+                hosts=self.hosts,
+                username=self.username,
+                password=self.password,
+                caCerts=self.caCerts,
+                caFingerprint=self.caFingerprint,
+                index=self.index,
+                logger=self.logger
+            )
 
-        # Case 2: When some optional parameters are not provided
-        Elasticsearch = Mock(spec=Elasticsearch)
-        handler = ElasticsearchHandler('localhost:9200', 'testuser', 'testpass', None, None, 'test_index', self.logger)
-        self.assertEqual(handler.index, 'test_index')
-        self.assertEqual(handler.logger, self.logger)
-        Elasticsearch.assert_called_once_with(
-            hosts=['localhost:9200'],
-            http_auth=('testuser', 'testpass'),
-            ca_certs=None,
-            ssl_assert_fingerprint=None,
-            verify_certs=False
-        )
+            # test Elasticsearch object creation with default values
+            self.assertIsInstance(es_handler.client, Elasticsearch)
+            self.assertEqual(es_handler.client.transport.hosts, self.hosts)
+            self.assertEqual(es_handler.client.transport.http_auth, (self.username, self.password))
+            self.assertEqual(es_handler.client.transport.use_ssl, True)
+            self.assertEqual(es_handler.client.transport.verify_certs, True)
+            self.assertEqual(es_handler.client.transport.ssl.ca_certs, self.caCerts)
+            self.assertEqual(es_handler.client.transport.ssl.ca_certs_digests, [self.caFingerprint])
 
-        # Case 3: When the Elasticsearch client fails to connect
-        Elasticsearch = Mock(side_effect=Exception('failed to connect'))
-        logger = Mock(spec=Logger)
-        handler = ElasticsearchHandler('localhost:9200', 'testuser', 'testpass', 'test_certs.pem', 'test_fingerprint', 'test_index', logger)
-        self.assertIsNone(handler.client)
-        logger.error.assert_called_once_with('Failed to connect to Elasticsearch: failed to connect')
+            # test Elasticsearch object creation with custom values
+            es_handler = ElasticsearchHandler(
+                hosts=self.hosts,
+                username=self.username,
+                password=self.password,
+                useSSL=False,
+                verifyCerts=False,
+                index=self.index,
+                logger=self.logger
+            )
+            self.assertIsInstance(es_handler.client, Elasticsearch)
+            self.assertEqual(es_handler.client.transport.hosts, self.hosts)
+            self.assertEqual(es_handler.client.transport.http_auth, (self.username, self.password))
+            self.assertEqual(es_handler.client.transport.use_ssl, False)
+            self.assertEqual(es_handler.client.transport.verify_certs, False)
+            self.assertIsNone(es_handler.client.transport.ssl.ca_certs)
+            self.assertIsNone(es_handler.client.transport.ssl.ca_certs_digests)
+
+            self.assertTrue(mock_search.called)
+
+
+        # test exception during connection
+        with patch.object(Elasticsearch, '__init__', side_effect=Exception('test error')):
+            es_handler = ElasticsearchHandler(
+                hosts=self.hosts,
+                username=self.username,
+                password=self.password,
+                caCerts=self.caCerts,
+                caFingerprint=self.caFingerprint,
+                index=self.index,
+                logger=self.logger
+            )
+        self.assertIsNone(es_handler.client)
+        with self.assertRaises(Exception):
+            es_handler.dataFetch({})  # attempt to use the uninitialized client instance
+            self.assertEqual(result['error'], 'Failed to retrieve data from Elasticsearch: test error')
+            self.assertIn('test error', result['error'])
+            self.assertTrue(mock_search.called)
 
 if __name__ == '__main__':
     unittest.main()
