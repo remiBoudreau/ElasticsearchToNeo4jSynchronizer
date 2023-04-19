@@ -16,7 +16,7 @@ class TestNeo4jHandler(unittest.TestCase):
         self.password = "password"
         self.logger = Logger("TestNeo4jHandler")
         self.neo4j_handler = Neo4jHandler(self.params, self.uri, self.user, self.password, self.logger)
-
+    
     @patch('Neo4jHandler.GraphDatabase')
     def test_formatProps_with_props(self, mock_graph_db):
         mock_driver = MagicMock()

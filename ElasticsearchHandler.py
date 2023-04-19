@@ -1,5 +1,5 @@
 from logging import Logger
-from typing import Union, str, List, Dict
+from typing import Union, List, Dict
 from elasticsearch import Elasticsearch
 
 #TODO: ADD SCROLLING IN ESREQ
@@ -32,10 +32,11 @@ class ElasticsearchHandler:
             logger: Logger
                 The logging object to use for error reporting.
             """
+            self.index = index
+            self.logger = logger
+            self.client = None  # initialize the Elasticsearch client instance to None
+            
             try:
-                self.index = index
-                self.logger = logger
-
                 # ElasticSearch Connection
                 self.client = Elasticsearch(
                     hosts=hosts or ['localhost:9200'],
@@ -44,10 +45,11 @@ class ElasticsearchHandler:
                     ssl_assert_fingerprint=caFingerprint,
                     verify_certs=bool(caCerts or caFingerprint)
                 )
+                self.es = self.client
             except Exception as e:
                 self.logger.error(f"Failed to connect to Elasticsearch: {e}")
-                
-    def dataFetch(self, query: dict) -> Union[dict, None]:
+
+    def dataFetch(self, query: dict) -> dict:
         """
         This function takes the Elasticsearch query generated in queryBuilder and retrieves the data from the Elasticsearch index.
 
@@ -58,15 +60,15 @@ class ElasticsearchHandler:
 
         Returns
         -------
-        dataFetchResponse : dict or None
-            A dictionary containing the search results. If no results are found, returns None.
+        dataFetchResponse : dict
+            A dictionary containing the search results. If no results are found, returns an empty dictionary.
+        error : str or None
+            A string containing the error message, if any. Otherwise, returns None.
         """
-        dataFetchResponse = {}
         try:
             dataFetchResponse = self.client.search(index=self.index, query=query)
         except Exception as e:
-            dataFetchResponse["error"] = (f"Failed to retrieve data from Elasticsearch: {e}")
-        finally: 
-            if "error" in dataFetchResponse:
-                self.logger.error(f"Failed to retrieve data from Elasticsearch: {dataFetchResponse['error']}")
+            error = f"Failed to retrieve data from Elasticsearch: {e}"
+            self.logger.error(error)
+            raise Exception(error)
         return dataFetchResponse
