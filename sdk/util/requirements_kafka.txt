@@ -1,5 +1,0 @@
-orjson==3.8.5
-confluent-kafka==2.0.2
-thefuzz==0.19.0
-python-Levenshtein==0.20.9
-neo4j

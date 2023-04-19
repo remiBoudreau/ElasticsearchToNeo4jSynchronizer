@@ -2,7 +2,8 @@ from logging import Logger
 from typing import Union, str, List, Dict
 from elasticsearch import Elasticsearch
 
-class ElasticSearchHandler:
+#TODO: ADD SCROLLING IN ESREQ
+class ElasticsearchHandler:
     def __init__(self, 
                 hosts: Union[str, List[str]], 
                 username: str, 

@@ -3,9 +3,10 @@ from neo4j import GraphDatabase
 from contextlib import contextmanager
 from neo4j import ResultSummary
 from typing import List, Dict, Union
+from nodeType import NodeType
 
-class Neo4jHandler(object):
-    def __init__(self, neo4jParameters: Dict, host: str, user: str, password: str, logger: Logger) -> None:
+class Neo4jHandler():
+    def __init__(self, neo4jParameters: Dict, uri: str, user: str, password: str, logger: Logger) -> None:
         """
         Initializes a Neo4jHandler object.
 
@@ -22,11 +23,13 @@ class Neo4jHandler(object):
         logger : Logger
             A logger object used to log events and error messages.
         """
-        self.parameters = neo4jParameters
-        self.driver = GraphDatabase.driver(host=host, auth=(user, password))
+        self.params = neo4jParameters
+        self.driver = GraphDatabase.driver(uri=uri, auth=(user, password))
         self.logger = logger
+        self.validTypes = {_nodeType.schema() for _nodeType in NodeType}
 
-    def format_props(self, props: Dict) -> str:
+
+    def formatProps(self, props: Dict) -> str:
         """
         Formats node or relationship properties as a string to be used in a Cypher query.
 
@@ -37,12 +40,12 @@ class Neo4jHandler(object):
 
         Returns
         -------
-        prop_str : str
+        props : str
             A string containing the formatted node or relationship properties.
         """
-        if props is not None:
-            prop_str = ', '.join([f"{k}: '{v}'" for k, v in props.items()])
-            return f"{{{prop_str}}}"
+        if isinstance(props, dict) and props:
+            propStr = ', '.join([f"{str(k)}: '{str(v)}'" for k, v in props.items()])
+            return f"{{{propStr}}}"
         else:
             return ""
         
@@ -62,47 +65,78 @@ class Neo4jHandler(object):
         rel_str : str
             A string containing the Cypher relationship.
         """
-        rel_props_str = self.format_props(relationshipProps)
-        return f"-[:{relationshipType} {{{rel_props_str}}}]->"
-        
-    def createNode(self, node_type: str, node_props: Dict) -> str:
+        relationship = self.formatProps(relationshipProps)
+        if relationshipType and not relationship:
+            self.createDyadErrorHandler(errorHandling='relationship')
+            return ""
+
+        return f"-[:{relationshipType} {{{relationship}}}]->"
+    
+    def createNode(self, _nodeType: str, _nodeProps: Dict) -> str:
         """
         Creates a Cypher node string to be used in a Cypher query.
 
         Parameters
         ----------
-        node_type : str
+        _nodeType : str
             The type of node to create.
-        node_props : dict
+        _nodeProps : dict
             A dictionary containing the properties to be set on the node.
 
         Returns
         -------
-        node_str : str
+        node : str
             A string containing the Cypher node.
         """
-        if node_type not in self.nodeTypes:
-            self.logger.error(f"Invalid node type detected. Must be one of {', '.join(self.parameters['nodeTypes'])}")
-        prop_str = self.format_props(node_props)
-        return f"(:{node_type} {{{prop_str}}})"
+        node=''
+        if not _nodeType or _nodeType not in self.validTypes:
+            self.createDyadErrorHandler(errorType='nodeType', entityType=_nodeType)
+            return node
+        if any(map(__func=bool(),
+                   __iter=[excludeMember for excludeMember in self.params.get('excludeMembers', [])])):
+            self.createDyadErrorHandler(errorType='keyTypes', entityType='nodeTypes')
+            return node
+        else:
+            propStr = self.formatProps(_nodeProps)
+            node = f"(:{_nodeType} {propStr})"
 
-    def createDyad(self, from_node_type: str, from_node_props: Dict, relationship_type: str, relationship_props: Dict, to_node_type: str, to_node_props: Dict) -> str:
+        if _nodeType and not node:
+            self.createDyadErrorHandler(errorMessages='node', entityType=_nodeType)
+
+        return node
+
+    def createDyadErrorHandler(self, errorType: str, entityType: str = 'undefined'):
+        errorMessages = {
+            "node": f"ValueError: failed to create node of type {entityType}.",
+            "noNameProp": f"AttributeError: failed to find `name` in neo4j properties for entity of type {entityType}",
+            "relationship": f"ValueError: failed to create node of type {entityType}",
+            "keyTypes": f"KeyError: failed to find {entityType} in neo4j parameter keys",
+            "fromNodeType": "ValueError: from_node_type must be defined.",
+            "nodeType": f"TypeError: nodeType must be an instance of class NodeType where the following values are accepted: Person, Place or Thing, not {entityType}.",
+            "nodePropsType": "TypeError: from_node_props must be None or a dictionary.",
+            "relationshipType": "TypeError: Both from_node_type and to_node_type must be defined to create a relationship.",
+        }
+        
+        self.logger.error(errorMessages[errorType])
+        raise Exception(errorMessages[errorType])
+        
+    def createDyad(self, fromNodeType: str, fromNodeProps: Dict, relationshipType: str, relationshipProps: Dict, toNodeType: str, toNodeProps: Dict) -> str:
         """
         Creates a Cypher dyad (a relationship between two nodes) to be used in a Cypher query.
 
         Parameters
         ----------
-        from_node_type : str
+        fromNodeType : str
             The type of the node at the start of the relationship.
-        from_node_props : dict
+        fromNodeProps : dict
             A dictionary containing the properties to be set on the node at the start of the relationship.
-        relationship_type : str
+        relationshipType : str
             The type of relationship to create.
-        relationship_props : dict
+        relationshipProps : dict
             A dictionary containing the properties to be set on the relationship.
-        to_node_type : str
+        toNodeType : str
             The type of the node at the end of the relationship.
-        to_node_props : dict
+        toNodeProps : dict
             A dictionary containing the properties to be set on the node at the end of the relationship.
 
         Returns
@@ -110,10 +144,22 @@ class Neo4jHandler(object):
         dyad_str : str
             A string containing the Cypher dyad.
         """
-        from_node = self.create_node(from_node_type, from_node_props)
-        to_node = self.create_node(to_node_type, to_node_props)
-        relationship = self.create_relationship(relationship_type, relationship_props)
-        return f"{from_node}{relationship}{to_node}"
+        fromNode = None
+        toNode = None
+        if fromNodeType:
+                fromNode = self.createNode(fromNodeType, fromNodeProps)
+                toNode = self.createNode(toNodeType, toNodeProps)
+        else:
+            self.createDyadErrorHandler(errorType='fromNodeType')
+
+
+        if fromNode and 'name' not in fromNode:
+            self.createDyadErrorHandler(errorType='noNameProp',)
+        if toNode and 'name' not in toNode:
+            self.createDyadErrorHandler(errorType='noNameProp')
+
+        relationship = self.createRelationship(relationshipType, relationshipProps) if fromNode and toNode else ""      
+        return f"{fromNode}{relationship}{toNode}"
 
     @contextmanager
     def transaction(self, session) -> ResultSummary:
@@ -167,3 +213,6 @@ class Neo4jHandler(object):
         except Exception as e:
             self.logger.warn(f"Couldn't insert data due to {e}")
             return False
+        
+    def close(self):
+        self.driver.close()
