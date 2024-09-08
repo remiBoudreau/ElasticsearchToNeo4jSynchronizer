@@ -1,7 +1,3 @@
-Sure! Here's a detailed README.md tailored for a senior-level audience, including sections for understanding, installation, usage, and contributing.
-
----
-
 # Elasticsearch to Neo4j Sync
 
 ## Overview
