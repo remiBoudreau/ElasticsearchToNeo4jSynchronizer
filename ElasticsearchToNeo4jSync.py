@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class GrayHatWarfare():
+class ElasticsearchToNeo4jSync():
     def __init__(self) -> None:
         """
         Constructor method for the class. Change the values of parameters and neo4jParameters as necessary per ingress container
